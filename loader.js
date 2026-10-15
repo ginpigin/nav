@@ -104,15 +104,29 @@ async function fetchLock() {
   return response.json();
 }
 
-async function authCall(lock, body, timeoutMs = 25000) {
-  const response = await fetchWithTimeout(new URL(lock.auth, BASE), {
+async function authCall(lock, body, timeoutMs = 25000, retries = 0) {
+  return scriptJson(new URL(lock.auth, BASE), {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify(body),
     redirect: 'follow',
     cache: 'no-store',
-  }, timeoutMs);
-  return response.json();
+  }, timeoutMs, retries);
+}
+
+async function scriptJson(url, options, timeoutMs, retries) {
+  for (let attempt = 0; ; attempt += 1) {
+    const response = await fetchWithTimeout(url, options, timeoutMs);
+    const text = await response.text();
+    if (response.ok) {
+      try {
+        return JSON.parse(text);
+      } catch (_) {
+      }
+    }
+    if (attempt >= retries) throw new Error(`сервер ответил ошибкой (код ${response.status})`);
+    await sleep(attempt ? 4000 : 1500);
+  }
 }
 
 async function fetchSiteFile(name) {
@@ -123,9 +137,7 @@ async function fetchSiteFile(name) {
 
 async function fetchDataBatch(source, entries, session) {
   const list = entries.map((entry) => encodeURIComponent(`${entry.p}.tpe`)).join('%7C');
-  const response = await fetch(`${new URL(source.url, BASE)}?s=${encodeURIComponent(session)}&f=${list}`, { cache: 'no-store' });
-  if (!response.ok) throw new Error(`Хранилище: код ${response.status}`);
-  const result = await response.json();
+  const result = await scriptJson(`${new URL(source.url, BASE)}?s=${encodeURIComponent(session)}&f=${list}`, { cache: 'no-store' }, 180000, 2);
   if (result.error === 'forbidden') throw Object.assign(new Error('Доступ этого устройства закрыт'), { revoked: true });
   if (result.error) throw new Error(`Хранилище: ${result.error}`);
   const out = new Map();
@@ -395,7 +407,7 @@ async function renew(lock, dev, { wantKey, proof }) {
   };
   const canon = ['nav3', 'renew', body.dev, body.nonce, body.next, body.want, body.dk ? '1' : '0', body.proof].join('|');
   body.mac = toBase64(await hmacBytes(pass, canon));
-  const answer = await authCall(lock, body, RENEW_TIMEOUT_MS);
+  const answer = await authCall(lock, body, RENEW_TIMEOUT_MS, 2);
   if (!answer.ok) return answer;
 
   const mode = (await kvGet('mode')) || 'key';
