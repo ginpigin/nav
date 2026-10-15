@@ -21,7 +21,7 @@ self.addEventListener('install', (event) => {
 });
 
 self.addEventListener('activate', (event) => {
-  const current = new Set([SHELL_CACHE, FILES_CACHE, TILES_CACHE]);
+  const current = new Set([SHELL_CACHE, FILES_CACHE, STAGE_CACHE, TILES_CACHE]);
   event.waitUntil(
     caches
       .keys()

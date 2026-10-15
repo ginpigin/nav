@@ -2,7 +2,7 @@
 
 const BASE = new URL('./', location.href);
 const LOCK_TIMEOUT_MS = 5000;
-const RENEW_TIMEOUT_MS = 15000;
+const RENEW_TIMEOUT_MS = 25000;
 const DOWNLOAD_THREADS = 4;
 const LOADER_VERSION = 3;
 const NO_NETWORK = 'Нет связи. Для первого запуска нужен интернет.';
@@ -104,28 +104,35 @@ async function fetchLock() {
   return response.json();
 }
 
-async function authCall(lock, body, timeoutMs = 25000, retries = 0) {
+async function authCall(lock, body, timeoutMs = 25000, retries = 0, retryErrorPage = true) {
   return scriptJson(new URL(lock.auth, BASE), {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify(body),
     redirect: 'follow',
     cache: 'no-store',
-  }, timeoutMs, retries);
+  }, timeoutMs, retries, retryErrorPage, (answer) => answer.error === 'forbidden');
 }
 
-async function scriptJson(url, options, timeoutMs, retries) {
+const RETRY_WAITS_MS = [2000, 5000, 10000, 20000];
+
+async function scriptJson(url, options, timeoutMs, retries, retryErrorPage = true, misrouted = () => false) {
   for (let attempt = 0; ; attempt += 1) {
     const response = await fetchWithTimeout(url, options, timeoutMs);
     const text = await response.text();
+    let answer = null;
     if (response.ok) {
       try {
-        return JSON.parse(text);
+        answer = JSON.parse(text);
       } catch (_) {
       }
     }
-    if (attempt >= retries) throw new Error(`сервер ответил ошибкой (код ${response.status})`);
-    await sleep(attempt ? 4000 : 1500);
+    if (answer && !misrouted(answer)) return answer;
+    if (attempt >= retries || (!answer && !retryErrorPage)) {
+      if (answer) return answer;
+      throw new Error(`сервер ответил ошибкой (код ${response.status})`);
+    }
+    await sleep(RETRY_WAITS_MS[Math.min(attempt, RETRY_WAITS_MS.length - 1)]);
   }
 }
 
@@ -137,7 +144,7 @@ async function fetchSiteFile(name) {
 
 async function fetchDataBatch(source, entries, session) {
   const list = entries.map((entry) => encodeURIComponent(`${entry.p}.tpe`)).join('%7C');
-  const result = await scriptJson(`${new URL(source.url, BASE)}?s=${encodeURIComponent(session)}&f=${list}`, { cache: 'no-store' }, 180000, 2);
+  const result = await scriptJson(`${new URL(source.url, BASE)}?s=${encodeURIComponent(session)}&f=${list}`, { cache: 'no-store' }, 180000, 4);
   if (result.error === 'forbidden') throw Object.assign(new Error('Доступ этого устройства закрыт'), { revoked: true });
   if (result.error) throw new Error(`Хранилище: ${result.error}`);
   const out = new Map();
@@ -218,17 +225,22 @@ async function sync(lock, mainKey, dkey, session) {
   for (const entry of dataIndex.files) wanted.set(entry.p, { ...entry, from: 'data' });
 
   const cache = await caches.open(FILES_CACHE);
+  const stage = await caches.open(STAGE_CACHE);
   const todo = [];
+  let resumed = 0;
   for (const entry of wanted.values()) {
-    const cached = await cache.match(appUrl(entry.p));
-    if (!cached || cached.headers.get('x-nav-h') !== entry.h) todo.push(entry);
+    const url = appUrl(entry.p);
+    const cached = await cache.match(url);
+    if (cached && cached.headers.get('x-nav-h') === entry.h) continue;
+    const staged = await stage.match(url);
+    if (staged && staged.headers.get('x-nav-h') === entry.h) resumed += 1;
+    else todo.push(entry);
   }
 
-  report('sync', { todo: todo.map((entry) => entry.p), wanted: wanted.size });
+  report('sync', { todo: todo.map((entry) => entry.p), resumed, wanted: wanted.size });
   const totalBytes = todo.reduce((sum, entry) => sum + entry.s, 0);
   let done = 0;
   let bytes = 0;
-  const staged = [];
   if (todo.length) progress(`Загружаю файлы: 0 из ${todo.length}`, 0, todo.length, 0, totalBytes);
   const tasks = [
     ...todo.filter((entry) => entry.from === 'site').map((entry) => ({ site: true, entries: [entry] })),
@@ -245,16 +257,20 @@ async function sync(lock, mainKey, dkey, session) {
         throw new Error(`${entry.p}: в хранилище другая версия файла (идёт выгрузка?) — повторите через минуту`);
       }
       const url = appUrl(entry.p);
-      staged.push([entry, url, await sealBytes(dkey, new URL(url).pathname, content)]);
+      const sealed = await sealBytes(dkey, new URL(url).pathname, content);
+      await stage.put(url, new Response(sealed, { headers: { 'Content-Type': entry.t, 'x-nav-h': entry.h } }));
       done += 1;
       bytes += entry.s;
       progress(`Загружаю файлы: ${done} из ${todo.length}`, done, todo.length, bytes, totalBytes);
     }
   });
 
-  for (const [entry, url, sealed] of staged) {
-    await cache.put(url, new Response(sealed, { headers: { 'Content-Type': entry.t, 'x-nav-h': entry.h } }));
+  for (const entry of wanted.values()) {
+    const url = appUrl(entry.p);
+    const staged = await stage.match(url);
+    if (staged && staged.headers.get('x-nav-h') === entry.h) await cache.put(url, staged);
   }
+  await caches.delete(STAGE_CACHE);
   const keep = new Set([...wanted.keys()].map(appUrl));
   for (const request of await cache.keys()) {
     if (!keep.has(request.url)) await cache.delete(request);
@@ -309,6 +325,7 @@ function loginError(answer) {
   if (answer.error === 'busy') {
     return 'С этим паролем уже вошли на другом устройстве. Если это новый телефон — попросите того, кто дал пароль, сбросить привязку.';
   }
+  if (answer.error === 'forbidden') return 'Сервер входа не ответил — нажмите «Войти» ещё раз';
   return `Вход не удался: ${answer.error || 'нет ответа'}`;
 }
 
@@ -339,7 +356,7 @@ async function newDevice(lock, kind) {
     submit: async (password) => {
       const proof = await deriveProof(password, lock.salt, lock.iter);
       const nonce = toBase64(randomBytes(16));
-      const answer = await authCall(lock, { op: 'login', proof: toBase64(proof), install, nonce, info: navigator.userAgent, mode });
+      const answer = await authCall(lock, { op: 'login', proof: toBase64(proof), install, nonce, info: navigator.userAgent, mode }, 25000, 2, false);
       if (!answer.ok) return loginError(answer);
       const key = await importHmac(proof);
       const pass = await unwrapSecret(key, 'pass', nonce, answer.pass, answer.passKcv);
@@ -376,7 +393,7 @@ async function syncAndLaunch(lock, mainKey, dkey, session) {
     }
     const message = error?.name === 'OperationError' ? 'файл не расшифровался — повторите через минуту' : String(error?.message || error);
     const state = await kvGet('state');
-    problem(`Не удалось обновить: ${message}`, (await canOpenSaved(state)) ? () => launch(state) : null);
+    problem(`Не удалось обновить: ${message}. Скачанное сохранено — «Повторить» докачает остальное.`, (await canOpenSaved(state)) ? () => launch(state) : null);
   }
 }
 
@@ -407,7 +424,8 @@ async function renew(lock, dev, { wantKey, proof }) {
   };
   const canon = ['nav3', 'renew', body.dev, body.nonce, body.next, body.want, body.dk ? '1' : '0', body.proof].join('|');
   body.mac = toBase64(await hmacBytes(pass, canon));
-  const answer = await authCall(lock, body, RENEW_TIMEOUT_MS, 2);
+  const answer = await authCall(lock, body, RENEW_TIMEOUT_MS, 3);
+  if (answer.error === 'forbidden') throw new Error('сервер входа не ответил');
   if (!answer.ok) return answer;
 
   const mode = (await kvGet('mode')) || 'key';

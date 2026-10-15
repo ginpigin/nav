@@ -4,6 +4,7 @@ const NAV_TEST = false;
 const SW_VERSION = 3;
 const DB_NAME = 'nav-web';
 const FILES_CACHE = 'nav-files-v2';
+const STAGE_CACHE = 'nav-stage-v1';
 const COOKIE_NAME = 'nk';
 const DAY_MS = 24 * 60 * 60 * 1000;
 const CLOCK_SLACK_MS = 10 * 60 * 1000;
