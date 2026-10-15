@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Навигатор">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="theme-color" content="#f4f6fa" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#11151c" media="(prefers-color-scheme: dark)">
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icon-180.png">
+  <title>Навигатор</title>
+  <style>
+    :root {
+      --bg: #f4f6fa;
+      --surface: #ffffff;
+      --text: #111827;
+      --muted: #6b7280;
+      --accent: #2563eb;
+      --accent-text: #ffffff;
+      --danger: #dc2626;
+      --border: #d7dce5;
+      --track: #e5e8ee;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #11151c;
+        --surface: #1b212b;
+        --text: #f3f4f6;
+        --muted: #9aa3b2;
+        --accent: #5b8cff;
+        --accent-text: #0b1020;
+        --danger: #f87171;
+        --border: #2d3644;
+        --track: #2a313d;
+      }
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      -webkit-text-size-adjust: 100%;
+    }
+    main {
+      min-height: 100%;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: calc(24px + env(safe-area-inset-top)) 16px calc(24px + env(safe-area-inset-bottom));
+    }
+    .card {
+      width: 100%;
+      max-width: 380px;
+      margin: 0 auto;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 24px 20px;
+    }
+    h1 { margin: 0 0 4px; font-size: 22px; font-weight: 650; }
+    p { margin: 0; }
+    .muted { color: var(--muted); font-size: 14px; }
+    form { margin-top: 20px; display: grid; gap: 12px; }
+    input {
+      width: 100%;
+      font: inherit;
+      font-size: 17px;
+      padding: 12px 14px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text);
+    }
+    input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+    button {
+      font: inherit;
+      font-weight: 600;
+      padding: 12px 14px;
+      border-radius: 10px;
+      border: 0;
+      background: var(--accent);
+      color: var(--accent-text);
+    }
+    button:disabled { opacity: 0.6; }
+    button.secondary { background: transparent; color: var(--accent); border: 1px solid var(--border); }
+    .error { color: var(--danger); font-size: 14px; min-height: 1.4em; }
+    .progress { margin-top: 20px; }
+    .bar { height: 8px; border-radius: 4px; background: var(--track); overflow: hidden; margin: 10px 0 6px; }
+    .bar > div { height: 100%; width: 0; background: var(--accent); transition: width 0.2s; }
+    .actions { margin-top: 16px; display: flex; gap: 8px; }
+    [hidden] { display: none !important; }
+    footer { margin-top: 16px; text-align: center; }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="card">
+      <h1>Навигатор</h1>
+      <p class="muted" id="subtitle">Запуск…</p>
+
+      <form id="login" hidden autocomplete="off">
+        <input id="password" type="password" placeholder="Пароль" autocomplete="current-password" autocapitalize="off" autocorrect="off" spellcheck="false" required>
+        <button id="loginButton" type="submit">Войти</button>
+        <button id="skipButton" class="secondary" type="button" hidden>Позже</button>
+        <p class="error" id="loginError"></p>
+      </form>
+
+      <div class="progress" id="progress" hidden>
+        <p id="progressText">Проверяю обновления…</p>
+        <div class="bar"><div id="progressBar"></div></div>
+        <p class="muted" id="progressBytes"></p>
+      </div>
+
+      <div id="problem" hidden>
+        <p class="error" id="problemText" style="margin-top: 16px"></p>
+        <div class="actions">
+          <button id="retryButton" type="button">Повторить</button>
+          <button id="openButton" type="button" hidden>Открыть сохранённую версию</button>
+        </div>
+      </div>
+    </div>
+    <footer class="muted" id="footer"></footer>
+  </main>
+  <script src="keys.js"></script>
+  <script src="loader.js"></script>
+</body>
+</html>
