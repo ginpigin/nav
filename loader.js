@@ -293,7 +293,7 @@ function loginError(answer) {
   if (answer.error === 'password' || answer.error === 'wrong') {
     return `Неверный пароль${Number.isFinite(answer.left) ? ` (осталось попыток: ${answer.left})` : ''}`;
   }
-  if (answer.error === 'locked') return 'Слишком много неверных паролей — вход закрыт на 10 минут';
+  if (answer.error === 'locked') return 'Слишком много неверных паролей с этого устройства — вход закрыт на 10 минут';
   if (answer.error === 'busy') {
     return 'С этим паролем уже вошли на другом устройстве. Если это новый телефон — попросите того, кто дал пароль, сбросить привязку.';
   }
@@ -497,7 +497,7 @@ async function existingDevice(lock, dev) {
   }
   if (answer.error) {
     const text = answer.error === 'locked'
-      ? 'Слишком много неверных паролей — подождите 10 минут.'
+      ? 'Слишком много неверных паролей с этого устройства — подождите 10 минут.'
       : 'Устройство не прошло проверку. Попросите того, кто дал пароль, сбросить привязку.';
     problem(text, (await canOpenSaved(state)) ? () => launch(state) : null);
     return;
