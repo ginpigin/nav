@@ -70,6 +70,33 @@ function platformKind() {
   return 'refuse';
 }
 
+function deviceLook() {
+  const media = (query) => !!(window.matchMedia && window.matchMedia(query).matches);
+  let gpu = '';
+  try {
+    const gl = document.createElement('canvas').getContext('webgl');
+    const info = gl && gl.getExtension('WEBGL_debug_renderer_info');
+    if (gl) gpu = String(gl.getParameter(info ? info.UNMASKED_RENDERER_WEBGL : gl.RENDERER) || '');
+  } catch (_) {
+    gpu = '';
+  }
+  const gecko = 'mozInnerScreenX' in window;
+  const blink = !!navigator.userAgentData;
+  return {
+    p: navigator.platform || '',
+    t: navigator.maxTouchPoints || 0,
+    c: media('(pointer: coarse)') && media('(hover: none)'),
+    w: screen.width,
+    h: screen.height,
+    r: window.devicePixelRatio || 1,
+    g: gpu.slice(0, 80),
+    s: navigator.standalone === true || media('(display-mode: standalone)'),
+    u: blink,
+    k: !!(window.CSS && CSS.supports && CSS.supports('-webkit-touch-callout', 'none')),
+    e: gecko ? 'gecko' : blink ? 'blink' : 'webkit',
+  };
+}
+
 async function pretendOffline() {
   await sleep(LOCK_TIMEOUT_MS + Math.round(Math.random() * 1500));
   problem(NO_NETWORK, null);
@@ -333,6 +360,8 @@ function loginError(answer) {
   if (answer.error === 'surname') return 'Фамилии нет в списке или этот пароль привязан к другой фамилии';
   if (answer.error === 'blocked') return 'Вход закрыт: пароль или это устройство в чёрном списке. Обратитесь к тому, кто дал пароль.';
   if (answer.error === 'bound') return 'На этом устройстве уже вошли с другим паролем. С новым можно войти, когда тот вход отзовут.';
+  if (answer.error === 'web') return 'С этим паролем на сайт не войти — только в приложение «Навигатор ТП 🔒» на Android. Если нужен сайт, обратитесь к тому, кто дал пароль.';
+  if (answer.error === 'iphone') return 'С этим паролем сайт открывается только на iPhone или iPad — с экрана «Домой».';
   return `Вход не удался: ${answer.error || 'нет ответа'}`;
 }
 
@@ -364,7 +393,7 @@ async function newDevice(lock, kind) {
     submit: async (password, surname) => {
       const proof = await deriveProof(password, lock.salt, lock.iter);
       const nonce = toBase64(randomBytes(16));
-      const answer = await authCall(lock, { op: 'login', proof: toBase64(proof), install, nonce, info: navigator.userAgent, mode, surname }, 25000, 2, false);
+      const answer = await authCall(lock, { op: 'login', proof: toBase64(proof), install, nonce, info: navigator.userAgent, mode, surname, look: deviceLook() }, 25000, 2, false);
       if (!answer.ok) return loginError(answer);
       const key = await importHmac(proof);
       const pass = await unwrapSecret(key, 'pass', nonce, answer.pass, answer.passKcv);
