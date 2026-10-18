@@ -4,7 +4,7 @@ const BASE = new URL('./', location.href);
 const LOCK_TIMEOUT_MS = 5000;
 const RENEW_TIMEOUT_MS = 25000;
 const DOWNLOAD_THREADS = 4;
-const LOADER_VERSION = 3;
+const LOADER_VERSION = 4;
 const NO_NETWORK = 'Нет связи. Для первого запуска нужен интернет.';
 
 const $ = (id) => document.getElementById(id);
@@ -288,24 +288,28 @@ async function sync(lock, mainKey, dkey, session) {
   return state;
 }
 
-function passwordForm({ text, submit, skip, error }) {
+function passwordForm({ text, submit, skip, error, surname = false }) {
   return new Promise((resolve) => {
     show('login');
     subtitle(text);
     const input = $('password');
+    const nameInput = $('surname');
     input.value = '';
+    nameInput.hidden = !surname;
+    nameInput.required = surname;
     $('loginError').textContent = error || '';
     $('skipButton').hidden = !skip;
     $('skipButton').onclick = () => resolve('skip');
-    setTimeout(() => input.focus(), 50);
+    setTimeout(() => (surname && !nameInput.value ? nameInput : input).focus(), 50);
     $('login').onsubmit = async (event) => {
       event.preventDefault();
       const password = input.value.trim();
-      if (!password) return;
+      const family = surname ? nameInput.value.trim() : '';
+      if (!password || (surname && !family)) return;
       $('loginButton').disabled = true;
       $('loginError').textContent = 'Проверяю…';
       try {
-        const error = await submit(password);
+        const error = await submit(password, family);
         $('loginError').textContent = error || '';
         if (!error) resolve('ok');
       } catch (error) {
@@ -326,6 +330,9 @@ function loginError(answer) {
     return 'С этим паролем уже вошли на другом устройстве. Если это новый телефон — попросите того, кто дал пароль, сбросить привязку.';
   }
   if (answer.error === 'forbidden') return 'Сервер входа не ответил — нажмите «Войти» ещё раз';
+  if (answer.error === 'surname') return 'Фамилии нет в списке или этот пароль привязан к другой фамилии';
+  if (answer.error === 'blocked') return 'Вход закрыт: пароль или это устройство в чёрном списке. Обратитесь к тому, кто дал пароль.';
+  if (answer.error === 'bound') return 'На этом устройстве уже вошли с другим паролем. С новым можно войти, когда тот вход отзовут.';
   return `Вход не удался: ${answer.error || 'нет ответа'}`;
 }
 
@@ -352,11 +359,12 @@ async function newDevice(lock, kind) {
   let session = null;
   let mainKey = null;
   await passwordForm({
-    text: 'Введите свой пароль, который вам дали вместе со ссылкой.',
-    submit: async (password) => {
+    text: 'Введите свою фамилию и пароль, который вам дали вместе со ссылкой.',
+    surname: true,
+    submit: async (password, surname) => {
       const proof = await deriveProof(password, lock.salt, lock.iter);
       const nonce = toBase64(randomBytes(16));
-      const answer = await authCall(lock, { op: 'login', proof: toBase64(proof), install, nonce, info: navigator.userAgent, mode }, 25000, 2, false);
+      const answer = await authCall(lock, { op: 'login', proof: toBase64(proof), install, nonce, info: navigator.userAgent, mode, surname }, 25000, 2, false);
       if (!answer.ok) return loginError(answer);
       const key = await importHmac(proof);
       const pass = await unwrapSecret(key, 'pass', nonce, answer.pass, answer.passKcv);
